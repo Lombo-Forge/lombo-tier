@@ -6,6 +6,7 @@
   <a href="https://github.com/Lombo-Forge/lombo-tier/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://img.shields.io/github/actions/workflow/status/Lombo-Forge/lombo-tier/codeql.yml?branch=main&label=CodeQL"></a>
   <a href="https://github.com/Lombo-Forge/lombo-tier/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Lombo-Forge/lombo-tier?include_prereleases"></a>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue">
+  <a href="https://ko-fi.com/datlombardo"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white"></a>
 </p>
 
 # LomboTier

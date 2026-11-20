@@ -1,6 +1,6 @@
 lombotv
 lombooks
-datlombardo
+datlombardo\.ca
 x-lombotv
 discord(app)?\.com/api/webhooks
 192\.168\.
