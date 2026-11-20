@@ -1,0 +1,21 @@
+# Runs LomboTier once. Use with lombo-tier.timer instead of `run --loop`.
+# Copy to /etc/systemd/system/, edit the paths, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now lombo-tier.timer
+[Unit]
+Description=LomboTier nightly run
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# --user must be the user that owns your media files, and it must own /var/lib/lombo-tier too.
+# If LOMBO_TIER_JELLYFIN_URL uses a container name, add: --network <the network Jellyfin is on>
+ExecStart=/usr/bin/docker run --rm --name lombo-tier-run \
+  --user 1000:1000 \
+  --env-file /etc/lombo-tier/.env \
+  -v /var/lib/lombo-tier:/data \
+  -v /mnt/ssd1:/mnt/ssd1 \
+  -v /mnt/hdd1:/mnt/hdd1 \
+  -v /mnt/hdd2:/mnt/hdd2 \
+  ghcr.io/lombo-forge/lombo-tier:latest run
+TimeoutStartSec=6h

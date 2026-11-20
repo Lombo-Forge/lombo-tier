@@ -1,0 +1,8 @@
+# /etc/fstab line for a pool of one SSD and two HDDs, mounted at /media.
+#
+# - Branch order matters: SSD first. category.create=ff puts a new file on the first branch
+#   that has more than minfreespace free, so new files land on the SSD until it is nearly full.
+# - minfreespace should match LOMBO_TIER_RESERVE_GB.
+# - LomboTier is given the branch folders (/mnt/ssd1, /mnt/hdd1, /mnt/hdd2), not /media.
+# Options differ between mergerfs versions: check the mergerfs documentation for yours.
+/mnt/ssd1:/mnt/hdd1:/mnt/hdd2 /media fuse.mergerfs cache.files=off,category.create=ff,func.getattr=newest,dropcacheonclose=false,moveonenospc=true,minfreespace=40G,fsname=mediapool,nofail 0 0

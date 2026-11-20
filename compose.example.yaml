@@ -1,0 +1,26 @@
+# Drop-in service block. Put it in your own compose file, or run it on its own with:
+#   docker compose -f compose.example.yaml up -d
+# The image runs `lombo-tier run --loop` by default.
+services:
+  lombo-tier:
+    image: ghcr.io/lombo-forge/lombo-tier:latest   # or build: .
+    container_name: lombo-tier
+    restart: unless-stopped
+    env_file: .env
+    # Run as the user that owns your media files (id -u, id -g).
+    user: "1000:1000"
+    read_only: false
+    mem_limit: 256m
+    volumes:
+      - lombo-tier-data:/data            # state.json and hdd-index.json (LOMBO_TIER_DATA_DIR)
+      # The individual disks, read-write, at the same paths as LOMBO_TIER_SSD_BRANCHES / HDD_BRANCHES.
+      - /mnt/ssd1:/mnt/ssd1
+      - /mnt/hdd1:/mnt/hdd1
+      - /mnt/hdd2:/mnt/hdd2
+    # If Jellyfin is in another compose project, join its network:
+    # networks: [media]
+# networks:
+#   media:
+#     external: true
+volumes:
+  lombo-tier-data:

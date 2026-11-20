@@ -1,0 +1,10 @@
+# Starts lombo-tier.service every night at 04:00 (the host's timezone).
+[Unit]
+Description=Run LomboTier nightly
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
