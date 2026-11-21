@@ -54,8 +54,14 @@ class Config:
         return os.path.join(self.data_dir, "hdd-index.json")
 
 
-def _truthy(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+def _truthy(value: str, name: str) -> bool:
+    """Strict on/off: a typo such as DRY_RUN=treu is an error, never a silent 'off'."""
+    word = value.strip().lower()
+    if word in {"1", "true", "yes", "on"}:
+        return True
+    if word in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigError(f"{PREFIX}{name} must be true or false (got {value!r})")
 
 
 def from_env(env: dict[str, str]) -> Config:
@@ -167,12 +173,12 @@ def from_env(env: dict[str, str]) -> Config:
         max_run_minutes=number("MAX_RUN_MINUTES", "240", int, 1),
         wait_quiet_minutes=number("WAIT_QUIET_MINUTES", "30", int),
         dest_margin=int(number("DEST_MARGIN_GB", "20") * GB),
-        check_mounts=_truthy(get("CHECK_MOUNTS", "true")),
+        check_mounts=_truthy(get("CHECK_MOUNTS", "true"), "CHECK_MOUNTS"),
         disk_marker=marker,
         hdd_index_max_days=number("HDD_INDEX_MAX_DAYS", "7"),
         run_hour=run_hour,
         webhook_url=url("WEBHOOK_URL", False),
         ping_url=url("PING_URL", False),
         # Safe by default: nothing moves until the person sets DRY_RUN=false.
-        dry_run=_truthy(get("DRY_RUN", "true")),
+        dry_run=_truthy(get("DRY_RUN", "true"), "DRY_RUN"),
     )
