@@ -8,8 +8,10 @@ hash-verified before the original is removed.
 
 import contextlib
 import fcntl
+import json
 import logging
 import os
+import subprocess
 import threading
 import time
 import urllib.request
@@ -251,6 +253,37 @@ def run(
     return _locked(cfg, now(), dry_run, lambda: _run(cfg, jf, dry_run, wait, sleep, poll, now))
 
 
+def _post_move(cfg: Config, result: dict[str, Any]) -> str | None:
+    """Run the optional post-move command once. Returns a short problem text, or None when it ran fine or is unset."""
+    if not cfg.post_move_command:
+        return None
+    moved = {k: [i["unit"] for i in result[k]] for k in ("demoted", "promoted", "gathered")}
+    env = {**os.environ, "LOMBO_TIER_MOVED_JSON": json.dumps(moved)}
+    try:
+        done = subprocess.run(  # noqa: S603 - no shell; the command is the owner's own setting
+            list(cfg.post_move_command),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as err:
+        return f"post-move command failed ({type(err).__name__})"
+    return None if done.returncode == 0 else f"post-move command failed (exit {done.returncode})"
+
+
+def _hook(cfg: Config, result: dict[str, Any], dry_run: bool) -> None:
+    """After tiers.json is written: run the post-move command if something really moved. A failure is a
+    note on the result and a log line, never a failed run."""
+    if dry_run or not (result["demoted"] or result["promoted"] or result["gathered"]):
+        return
+    problem = _post_move(cfg, result)
+    if problem:
+        log.warning("%s", problem)
+        result["note"] = f"{result['note']}; {problem}" if result["note"] else problem
+
+
 def _run(
     cfg: Config,
     jf: Jellyfin,
@@ -289,6 +322,7 @@ def _run(
             result["failed"] = True
         if units:
             _publish_tiers(cfg, units, now())
+        _hook(cfg, result, dry_run)
         if not dry_run:
             state["last_run"] = result
             statemod.save(cfg.state_path, state)
@@ -482,6 +516,7 @@ def _run_move(
             result["failed"] = True
         if units:
             _publish_tiers(cfg, units, now())
+        _hook(cfg, result, dry_run)
         if not dry_run:
             state["last_run"] = result
             statemod.save(cfg.state_path, state)

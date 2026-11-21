@@ -5,6 +5,7 @@ A bad value stops the app at start-up with a message that names the variable.
 """
 
 import os
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
@@ -43,6 +44,7 @@ class Config:
     pin_file: str = ""  # JSON list of pinned titles; empty = no pinning
     pin_branch: str = ""  # an SSD branch that pinned titles are gathered onto; empty = leave them where they are
     session_file: str = ""  # a conversion session lock file to respect; empty = no check
+    post_move_command: tuple[str, ...] = ()  # run once after a run or move that moved something; empty = off
 
     @property
     def tiers_path(self) -> str:
@@ -126,6 +128,12 @@ def from_env(env: dict[str, str]) -> Config:
             raise ConfigError(f"{PREFIX}{name} lists the same folder twice")
         return tuple(out)
 
+    def optional_command(name: str) -> tuple[str, ...]:
+        try:
+            return tuple(shlex.split(get(name)))
+        except ValueError as e:
+            raise ConfigError(f"{PREFIX}{name} is not a valid command: {e}") from None
+
     jellyfin = cast(str, url("JELLYFIN_URL", True))  # required=True: url() never returns None here
     key = get("JELLYFIN_API_KEY")
     if not key or key == "changeme":
@@ -206,4 +214,5 @@ def from_env(env: dict[str, str]) -> Config:
         pin_file=pin_file,
         pin_branch=pin_branch,
         session_file=session_file,
+        post_move_command=optional_command("POST_MOVE_COMMAND"),
     )

@@ -41,6 +41,16 @@ URL. It moves real files, so most of the care is about files and about not actin
   JSON object"), and the session owner's name, which is a tool name and not a secret.
 - Passwords or tokens of any kind: LomboTier handles none besides the Jellyfin key, which is sent only to Jellyfin.
 
+## The post-move command
+
+`LOMBO_TIER_POST_MOVE_COMMAND` is the owner's own setting, like the rest of the environment, so LomboTier runs it as
+given. It is split like a shell would split it, but started without a shell: no pipes, no `$VAR`, no globbing. It runs
+as the same user as LomboTier, with the same environment plus `LOMBO_TIER_MOVED_JSON` (the pool-relative paths of the
+units that moved, which are library paths and nothing secret). It gets no input, its output is thrown away, and it is
+stopped after 60 seconds. A failure never fails a run. LomboTier never logs the command's environment. An unbalanced
+quote is a start-up error that names the variable. Do not point it at anything that builds a shell command from the
+paths.
+
 ## Files it reads and writes
 
 | File | Read | Written |

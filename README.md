@@ -86,6 +86,11 @@ Exit codes: 0 ok, 1 failure, 2 bad settings (or a title name that `move` or `pin
 - **`tiers.json`.** After every run, `tiers.json` in the data folder lists where each movie and season folder is
   (`ssd` or `hdd`), its size and whether it is pinned, in a versioned shape other tools may read. See
   [docs/contracts.md](docs/contracts.md).
+- **Post-move command.** `LOMBO_TIER_POST_MOVE_COMMAND` (empty = off) is run once after a run or `move` that
+  really moved something, for example to ask Sonarr or Radarr to rescan. It is started without a shell, gets the moved
+  unit paths as JSON in `LOMBO_TIER_MOVED_JSON`, and never runs in a dry run. If it fails, the result and the log
+  line get a note such as `post-move command failed (exit 1)`; the run itself is not failed. See
+  [docs/contracts.md](docs/contracts.md).
 - **One at a time.** A live run or `move` takes a lock in the data folder; a second one does not start.
 
 Security notes (what it trusts, refuses and never logs): [docs/security.md](docs/security.md).
