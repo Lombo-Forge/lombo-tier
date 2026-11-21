@@ -40,6 +40,17 @@ class Config:
     webhook_url: str | None
     ping_url: str | None
     dry_run: bool
+    pin_file: str = ""  # JSON list of pinned titles; empty = no pinning
+    pin_branch: str = ""  # an SSD branch that pinned titles are gathered onto; empty = leave them where they are
+    session_file: str = ""  # a conversion session lock file to respect; empty = no check
+
+    @property
+    def tiers_path(self) -> str:
+        return os.path.join(self.data_dir, "tiers.json")
+
+    @property
+    def lock_path(self) -> str:
+        return os.path.join(self.data_dir, "run.lock")
 
     @property
     def roots(self) -> tuple[str, ...]:
@@ -160,6 +171,17 @@ def from_env(env: dict[str, str]) -> Config:
     if run_hour > 23:
         raise ConfigError(f"{PREFIX}RUN_HOUR must be 0 to 23 (got {run_hour})")
 
+    pin_file = get("PIN_FILE")
+    pin_branch = get("PIN_BRANCH").rstrip("/")
+    session_file = get("SESSION_FILE")
+    for name, value in (("PIN_FILE", pin_file), ("SESSION_FILE", session_file), ("PIN_BRANCH", pin_branch)):
+        if value and not value.startswith("/"):
+            raise ConfigError(f"{PREFIX}{name} must be an absolute path (got {value!r})")
+    if pin_branch and pin_branch not in ssd:
+        raise ConfigError(f"{PREFIX}PIN_BRANCH must be one of the folders in {PREFIX}SSD_BRANCHES (got {pin_branch!r})")
+    if pin_branch and not pin_file:
+        raise ConfigError(f"{PREFIX}PIN_BRANCH needs {PREFIX}PIN_FILE: there is no list of pinned titles to gather")
+
     return Config(
         jellyfin_url=jellyfin,
         jellyfin_api_key=key,
@@ -181,4 +203,7 @@ def from_env(env: dict[str, str]) -> Config:
         ping_url=url("PING_URL", False),
         # Safe by default: nothing moves until the person sets DRY_RUN=false.
         dry_run=_truthy(get("DRY_RUN", "true"), "DRY_RUN"),
+        pin_file=pin_file,
+        pin_branch=pin_branch,
+        session_file=session_file,
     )

@@ -8,6 +8,7 @@
 - [Moving to the SSD](#moving-to-the-ssd)
 - [How a move is done safely](#how-a-move-is-done-safely)
 - [Counting free space](#counting-free-space)
+- [Moving one title now](#moving-one-title-now)
 - [A run, step by step](#a-run-step-by-step)
 
 ## The setup it expects
@@ -48,6 +49,18 @@ The most popular come first. A title only moves up if the SSD keeps its reserve 
 - One run moves at most `MAX_GB_PER_RUN` and runs at most `MAX_RUN_MINUTES`. The destination must keep `DEST_MARGIN_GB` free.
 - Before the run starts it waits up to `WAIT_QUIET_MINUTES` for nobody to be watching.
 - A title that was moved up is not moved down for `PIN_DAYS`. The cooldowns are kept in `state.json`.
+- A pinned title is never moved to an HDD, by a run or by `move` ([pinned-titles.md](pinned-titles.md)).
+- While a conversion session file says a session is open, nothing moves ([contracts.md](contracts.md)).
+
+## Moving one title now
+
+`lombo-tier move NAME [NAME...] [--dry-run]` moves named titles from the SSDs to the HDDs with the checks above:
+mounted disks, the destination margin, hash-checked copies, no title that is playing (even with `--no-wait`), no
+title still hard-linked to a seeding torrent, no pinned title, the run lock. It is recorded in `state.json` like a
+night's run (a last-run note and a cooldown per title) and rewrites `tiers.json`. `NAME` is a title folder name
+(`Jaws (1975)`) or its path under the library (`movies/Jaws (1975)`, `tv/Some Show/Season 2`). If a name matches
+nothing, or matches several, `move` prints the matches and moves nothing, for any of the names. With `--dry-run`, or
+`DRY_RUN=true`, it prints the plan and changes nothing.
 
 ## Counting free space
 
@@ -55,13 +68,19 @@ mergerfs stops sending new files to a branch once it has less than `minfreespace
 
 ## A run, step by step
 
-1. Check that `state.json` is readable and, with `CHECK_MOUNTS=true`, that every branch is mounted. If not, stop: nothing moves.
+1. Check that `state.json` and the pin list (if you use one) are readable, that no conversion session is open
+   (if `SESSION_FILE` is set) and, with `CHECK_MOUNTS=true`, that every branch is mounted. If not, stop: nothing
+   moves. A live run also takes the run lock first, so only one run or `move` goes at a time.
 2. Read what Jellyfin knows about plays, per user, and who is watching now.
 3. Scan the SSD branches. The HDD file list is kept in `hdd-index.json` in `DATA_DIR` and refreshed when it is older than `HDD_INDEX_MAX_DAYS`, so sleeping HDDs are not woken every night.
 4. Build the plan.
-5. If `DRY_RUN=true`, print it and stop. A dry run does not write `state.json`.
+5. If `DRY_RUN=true`, print it and stop. A dry run does not write `state.json` (it does write `tiers.json`, which
+   only describes where files are).
 6. If there is something to move, walk the HDDs fresh (they are about to wake anyway) and plan again, so the plan matches the disks.
 7. Wait up to `WAIT_QUIET_MINUTES` for nobody to be watching. If people keep watching, stop without moving anything.
-8. Do the moves, checking Jellyfin every 30 seconds. If someone starts watching, the current file stops cleanly and the rest are skipped.
-9. Walk the HDDs once more so the saved file list matches, then write `state.json` (last run and a cooldown per moved title).
+8. Do the moves, checking Jellyfin (and the session file) every 30 seconds. If someone starts watching, or a
+   conversion session opens, the current file stops cleanly and the rest are skipped. With a pin branch, pinned
+   titles are gathered onto it after the other moves.
+9. Walk the HDDs once more so the saved file list matches, then write `state.json` (last run and a cooldown per
+   moved title) and `tiers.json` (where every title is now, see [contracts.md](contracts.md)).
 10. Send the webhook summary if something moved or failed, and ping `PING_URL`.

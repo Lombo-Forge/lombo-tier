@@ -12,7 +12,9 @@ services:
     read_only: false
     mem_limit: 256m
     volumes:
-      - lombo-tier-data:/data            # state.json and hdd-index.json (LOMBO_TIER_DATA_DIR)
+      - lombo-tier-data:/data            # state.json, hdd-index.json, tiers.json, run.lock (LOMBO_TIER_DATA_DIR)
+      # A pin list kept in /data (LOMBO_TIER_PIN_FILE=/data/pins.json) needs nothing more. A conversion session
+      # file (LOMBO_TIER_SESSION_FILE) must be in a folder both this container and the converter mount.
       # The individual disks, read-write, at the same paths as LOMBO_TIER_SSD_BRANCHES / HDD_BRANCHES.
       - /mnt/ssd1:/mnt/ssd1
       - /mnt/hdd1:/mnt/hdd1

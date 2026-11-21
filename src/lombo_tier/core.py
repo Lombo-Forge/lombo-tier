@@ -120,6 +120,7 @@ class Plan:
     promote: list[Move] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     popular: list[dict[str, Any]] = field(default_factory=list)  # most popular titles right now
+    gather: list[Move] = field(default_factory=list)  # pinned titles to collect onto the pin branch
 
 
 @dataclass(frozen=True)
@@ -270,9 +271,18 @@ def _age_text(ts: float | None, now: float) -> str:
 
 # --------------------------------------------------------------- the plan
 def plan(
-    units: dict[str, Unit], ssd_free: int, s: Settings, now: float, cooldown: dict[str, dict[str, Any]] | None = None
+    units: dict[str, Unit],
+    ssd_free: int,
+    s: Settings,
+    now: float,
+    cooldown: dict[str, dict[str, Any]] | None = None,
+    pinned: frozenset[str] = frozenset(),
+    gather_pinned: bool = False,
 ) -> Plan:
-    """What to move tonight. `cooldown` is {unit: {"dir": "promote"|"demote", "at": ts}} from the state file."""
+    """What to move tonight. `cooldown` is {unit: {"dir": "promote"|"demote", "at": ts}} from the state file.
+
+    `pinned` are units that never leave the SSD. With `gather_pinned` they are also left out of the normal
+    promotions, because the caller gathers them onto the pin branch instead."""
     cooldown = cooldown or {}
     out = Plan()
     target_free = s.reserve + s.headroom
@@ -282,7 +292,11 @@ def plan(
         return bool(c and c.get("dir") == "promote" and now - c.get("at", 0) < s.pin_days * DAY)
 
     # ---- who could come to the SSD (most popular first)
-    promos = [u for u in units.values() if u.hot_reason and u.hdd_bytes > 0 and not u.held and not u.playing]
+    promos = [
+        u
+        for u in units.values()
+        if u.hot_reason and u.hdd_bytes > 0 and not u.held and not u.playing and not (gather_pinned and u.rel in pinned)
+    ]
     promos.sort(key=lambda u: (-u.popularity, -(u.last_played or 0)))
     # ---- who could leave the SSD (never watched, then least popular, then longest unwatched)
     cold = [
@@ -292,6 +306,7 @@ def plan(
         and not u.hot_reason
         and not u.playing
         and not u.held
+        and u.rel not in pinned
         and not promoted_recently(u)
         and u.added
         and now - u.added >= s.min_age_days * DAY
