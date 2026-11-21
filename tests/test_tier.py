@@ -245,6 +245,23 @@ def test_plan_prints_and_never_changes_anything(pool, capsys):
     assert '"demote"' in capsys.readouterr().out
 
 
+def test_plan_labels_the_most_watched_titles_honestly(pool):
+    plan = core.Plan(popular=[{"unit": "movies/A (2001)", "viewers": 1, "where": "ssd"}])
+    text = cli.format_plan(plan, 10 * GB, from_env(pool.env))
+    assert "Most watched recently: movies/A (2001) (1 viewers, on ssd)" in text
+    assert "Popular" not in text
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
+def test_doctor_hints_at_a_read_only_mount(pool, capsys):
+    pool.ssd.chmod(0o555)
+    try:
+        cli.main(["doctor"], pool.env)
+    finally:
+        pool.ssd.chmod(0o755)
+    assert "not writable by this user (a read-only mount, or wrong owner or permissions)" in capsys.readouterr().out
+
+
 # -------------------------------------------------------------------- config
 def test_config_rejects_bad_values_and_names_the_setting(pool):
     for name, value in [

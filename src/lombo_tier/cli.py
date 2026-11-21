@@ -80,7 +80,9 @@ def doctor(cfg: Config, jf: Jellyfin | None = None) -> int:
             elif cfg.check_mounts and not disks.disk_mounted(b, cfg.disk_marker):
                 line(False, f"{tier} {b}", "not mounted (an empty folder on the boot disk would fill it)")
             elif not os.access(b, os.W_OK):
-                line(False, f"{tier} {b}", "not writable by this user")
+                line(
+                    False, f"{tier} {b}", "not writable by this user (a read-only mount, or wrong owner or permissions)"
+                )
             else:
                 line(True, f"{tier} {b}", f"{_gb(disks.disk_free(b))} free")
     present = {}
@@ -122,7 +124,7 @@ def format_plan(p: core.Plan, free: int, cfg: Config) -> str:
         out += [f"  {m.rel}  {_gb(m.bytes)}  {m.why}" for m in moves] or ["  nothing"]
     if p.popular:
         out.append(
-            "Popular right now: "
+            "Most watched recently: "
             + ", ".join(f"{x['unit']} ({x['viewers']} viewers, on {x['where']})" for x in p.popular[:5])
         )
     out += [f"Note: {n}" for n in p.notes]

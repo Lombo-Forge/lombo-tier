@@ -35,7 +35,7 @@ Move to HDD (2):
   tv/Quiet Show/Season 02  41.0 GB  last watched 94 days ago
 Move back to SSD (1):
   tv/Space Show/Season 03  36.2 GB  next season of 3 episodes watched this week
-Popular right now: tv/Space Show/Season 02 (3 viewers, on ssd)
+Most watched recently: tv/Space Show/Season 02 (3 viewers, on ssd)
 ```
 
 ## Install in a minute
