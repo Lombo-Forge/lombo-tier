@@ -109,3 +109,11 @@ def test_collect_watch_end_to_end(fake):
 def test_current_playing(fake):
     fake.sessions = [{"NowPlayingItem": {"Path": "/media/movies/A/a.mkv"}}]
     assert watch.current_playing(Jellyfin(fake.url, "good-key"), P) == {"movies/A/a.mkv"}
+
+
+def test_a_played_item_that_is_also_resumable_counts_once_per_person():
+    both = item("/media/movies/A/a.mkv", PlayCount=1, LastPlayedDate="2024-02-01T00:00:00Z")
+    w = watch.build_watch([], [[both], [both]], ["u1", "u1"], P)
+    assert w["movies/A/a.mkv"].plays == 1
+    w = watch.build_watch([], [[both], [both]], ["u1", "u2"], P)  # two people: still two plays
+    assert w["movies/A/a.mkv"].plays == 2

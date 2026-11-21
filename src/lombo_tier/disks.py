@@ -21,6 +21,7 @@ from .core import DAY, GB, Entry
 log = logging.getLogger("lombotier.disks")
 
 PART_SUFFIX = ".lombotier-part"
+NOT_MOUNTED = "disk not mounted"
 CHUNK = 8 * 1024 * 1024
 
 
@@ -277,8 +278,15 @@ def move_unit(
     deadline: float | None = None,
     margin: int = 20 * GB,
     settle_seconds: float = 3600,
+    marker: str | None = None,
 ) -> dict[str, Any]:
-    """Move one unit's files to the best destination branch. Returns what happened."""
+    """Move one unit's files to the best destination branch. Returns what happened.
+
+    With `marker` set (the disk marker, "" for mount-point checks), every branch is re-checked as
+    mounted before each file; if one is gone the unit stops and `skipped` starts with `NOT_MOUNTED`.
+    A file that cannot move for a known reason (hard-linked, changed recently) is found before the
+    first copy, so the unit is left whole. A stop mid-unit (someone watching, time up) can still leave
+    it partly moved; the next run carries on from there."""
     files = []
     for b in src_branches:
         for dirpath, _d, names in os.walk(os.path.join(b, unit_rel)):
@@ -288,6 +296,24 @@ def move_unit(
     total = sum(os.path.getsize(p) for _b, p in files)
     if not files:
         return {"moved": 0, "bytes": 0, "skipped": "nothing to move"}
+    for _b, path in files:
+        st = os.stat(path)
+        if st.st_nlink > 1:
+            why = "still hard-linked (a torrent is seeding it)"
+        elif time.time() - st.st_mtime < settle_seconds:
+            why = "changed recently"
+        else:
+            continue
+        return {"moved": 0, "bytes": 0, "skipped": f"{os.path.basename(path)}: {why}"}
+
+    def gone() -> str | None:
+        if marker is None:
+            return None
+        missing = unmounted_branches([*src_branches, *dst_branches], marker)
+        return f"{NOT_MOUNTED}: {', '.join(missing)}" if missing else None
+
+    if reason := gone():
+        return {"moved": 0, "bytes": 0, "skipped": reason}
     dst_branch = pick_branch(dst_branches, total, margin)
     if dst_branch is None:
         return {"moved": 0, "bytes": 0, "skipped": "no room on the destination disks"}
@@ -301,7 +327,7 @@ def move_unit(
         return None
 
     for b, path in files:
-        if reason := stop_reason():
+        if reason := stop_reason() or gone():
             return {"moved": moved, "bytes": moved_bytes, "skipped": reason}
         rel = os.path.relpath(path, b)
         size = os.path.getsize(path)

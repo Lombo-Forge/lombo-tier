@@ -30,6 +30,7 @@ def build_watch(
     `user_ids` names who each list belongs to (a person can have several lists),
     so popularity counts people, not lists. Files outside `prefix` are skipped."""
     watch: dict[str, Watch] = {}
+    counted: dict[tuple[str, str], int] = {}
 
     def entry(item: dict[str, Any]) -> Watch | None:
         if not item.get("Path"):
@@ -52,7 +53,11 @@ def build_watch(
             if last is not None:
                 w.last_played = max(w.last_played or 0, last)
                 w.viewers[uid] = max(w.viewers.get(uid, 0), last)
-            w.plays += int(ud.get("PlayCount") or 0)
+            # The same item can be in a person's played list and again in their resumable list: count it once.
+            count = int(ud.get("PlayCount") or 0)
+            key = (uid, it["Path"])
+            w.plays += max(0, count - counted.get(key, 0))
+            counted[key] = max(count, counted.get(key, 0))
     return watch
 
 

@@ -291,3 +291,50 @@ def test_move_unit_deletes_identical_stale_duplicate_only(pool):
     disks.move_unit("movies/B", [str(pool / "ssd1")], dst, margin=0)
     assert (pool / "hdd2/movies/B/b.mkv").read_bytes() == b"DIFFERENT!" * 10
     assert not (pool / "ssd1/movies/B/b.mkv").exists()
+
+
+def test_move_unit_leaves_whole_unit_when_one_file_cannot_move(pool):
+    make(pool / "ssd1/movies/A/a.mkv", b"a" * 100)
+    make(pool / "ssd1/movies/A/b.mkv", b"b" * 100, age=5)  # changed recently
+    r = disks.move_unit("movies/A", [str(pool / "ssd1")], [str(pool / "hdd1")], margin=0)
+    assert r["moved"] == 0
+    assert "recently" in r["skipped"]
+    assert (pool / "ssd1/movies/A/a.mkv").exists()
+    assert not (pool / "hdd1/movies/A").exists()
+
+
+def test_move_unit_stopping_midway_reports_a_partial_move(pool):
+    make(pool / "ssd1/movies/A/a.mkv", b"a" * 100)
+    make(pool / "ssd1/movies/A/b.mkv", b"b" * 100)
+    calls = []
+    r = disks.move_unit(
+        "movies/A",
+        [str(pool / "ssd1")],
+        [str(pool / "hdd1")],
+        check_playing=lambda: calls.append(1) or len(calls) > 1,
+        margin=0,
+    )
+    assert r["moved"] == 1
+    assert r["skipped"] == "someone started watching"
+
+
+def test_move_unit_stops_when_a_disk_goes_missing(pool, monkeypatch):
+    src, dst = _unit(pool)
+    for b in src + dst:
+        make(pathlib.Path(b) / ".m" / "x")
+    seen = []
+    real = disks.copy_verified
+
+    def copy_then_lose_disk(*a, **kw):
+        real(*a, **kw)
+        seen.append(1)
+        for p in (pool / "hdd1" / ".m", pool / "hdd2" / ".m"):
+            if p.exists():
+                (p / "x").unlink()
+                p.rmdir()
+
+    monkeypatch.setattr(disks, "copy_verified", copy_then_lose_disk)
+    r = disks.move_unit("movies/A", src, dst, margin=0, marker=".m")
+    assert len(seen) == 1
+    assert r["moved"] == 1
+    assert r["skipped"].startswith(disks.NOT_MOUNTED)
