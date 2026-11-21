@@ -1,7 +1,11 @@
 """Whole-tool tests: temp folders stand in for the pool's disks, a fake server for Jellyfin."""
 
+import json
 import os
 import re
+import shlex
+import subprocess
+import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -408,7 +412,10 @@ def test_env_example_is_valid_and_lists_every_setting():
     )
     from_env({**example, P + "JELLYFIN_API_KEY": "a-real-key"})  # the example file must parse as it is
     read = set(
-        re.findall(r'(?:get|number|url|folders)\(\s*"([A-Z_]+)"', (root / "src/lombo_tier/config.py").read_text())
+        re.findall(
+            r'(?:get|number|url|folders|optional_command)\(\s*"([A-Z_]+)"',
+            (root / "src/lombo_tier/config.py").read_text(),
+        )
     )
     assert read, "the pattern no longer finds any settings in config.py"
     assert {P + name for name in read} <= set(example), "a setting is missing from .env.example"
@@ -452,3 +459,147 @@ def test_half_moved_unit_gets_no_cooldown(pool, monkeypatch):
     cfg = pool.cfg(DRY_RUN="false")
     mover.run(cfg, pool.jf(cfg), wait=False)
     assert "movies/Cold (2001)" not in state.load(cfg.state_path).get("cooldown", {})
+
+
+# ------------------------------------------------------------ post-move command
+def _hook_script(tmp_path, body="", exit_code=0):
+    """A command that appends the JSON it was given to a file, then exits with exit_code."""
+    out = tmp_path / "hook-out.txt"
+    script = tmp_path / "hook.py"
+    script.write_text(
+        "import os, sys\n"
+        f"open({str(out)!r}, 'a').write(os.environ['LOMBO_TIER_MOVED_JSON'] + '\\n')\n"
+        f"{body}\n"
+        f"sys.exit({exit_code})\n"
+    )
+    return f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}", out
+
+
+def test_post_move_command_runs_once_with_the_moved_paths(pool, tmp_path):
+    pool.add(pool.ssd, "Cold (2001)")
+    pool.add(pool.ssd, "Cold Too (2002)")
+    command, out = _hook_script(tmp_path)
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND=command)
+    result = mover.run(cfg, pool.jf(cfg), wait=False)
+    assert result["note"] == "ok"
+    lines = out.read_text().splitlines()
+    assert len(lines) == 1
+    got = json.loads(lines[0])
+    assert sorted(got["demoted"]) == ["movies/Cold (2001)", "movies/Cold Too (2002)"]
+    assert got["promoted"] == []
+    assert got["gathered"] == []
+    assert os.path.exists(cfg.tiers_path)  # written before the command ran
+
+
+def test_post_move_command_sees_tiers_json_already_written(pool, tmp_path):
+    pool.add(pool.ssd, "Cold (2001)")
+    cfg = pool.cfg(DRY_RUN="false")
+    snap = tmp_path / "tiers-seen.json"
+    command, _ = _hook_script(tmp_path, f"import shutil; shutil.copy({cfg.tiers_path!r}, {str(snap)!r})")
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND=command)
+    mover.run(cfg, pool.jf(cfg), wait=False)
+    assert "Cold (2001)" in snap.read_text()
+
+
+def test_post_move_command_runs_after_a_manual_move(pool, tmp_path):
+    pool.add(pool.ssd, "Cold (2001)")
+    command, out = _hook_script(tmp_path)
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND=command)
+    result = mover.run_move(cfg, pool.jf(cfg), ["Cold (2001)"], dry_run=False, wait=False)
+    assert result["note"] == "manual move: ok"
+    assert json.loads(out.read_text())["demoted"] == ["movies/Cold (2001)"]
+
+
+def test_post_move_command_runs_for_a_promotion(pool, tmp_path):
+    pool.add(pool.hdd, "Hot (2020)")
+    pool.watched("Hot (2020)")
+    command, out = _hook_script(tmp_path)
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND=command)
+    mover.run(cfg, pool.jf(cfg), wait=False)
+    assert json.loads(out.read_text())["promoted"] == ["movies/Hot (2020)"]
+
+
+def test_post_move_command_never_runs_in_a_dry_run(pool, tmp_path):
+    pool.add(pool.ssd, "Cold (2001)")
+    command, out = _hook_script(tmp_path)
+    cfg = pool.cfg(POST_MOVE_COMMAND=command)
+    assert cfg.dry_run
+    mover.run(cfg, pool.jf(cfg))
+    mover.run_move(cfg, pool.jf(cfg), ["Cold (2001)"], dry_run=True, wait=False)
+    assert not out.exists()
+
+
+def test_post_move_command_does_not_run_when_nothing_moved(pool, tmp_path):
+    command, out = _hook_script(tmp_path)
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND=command)
+    result = mover.run(cfg, pool.jf(cfg), wait=False)
+    assert result["demoted"] == []
+    assert not out.exists()
+    pool.add(pool.ssd, "Playing (1999)")
+    pool.playing("Playing (1999)")
+    result = mover.run(cfg, pool.jf(cfg), wait=False)
+    assert result["demoted"] == []
+    assert not out.exists()
+
+
+def test_post_move_command_failure_is_a_note_not_a_failed_run(pool, tmp_path, caplog):
+    pool.add(pool.ssd, "Cold (2001)")
+    command, _ = _hook_script(tmp_path, exit_code=3)
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND=command)
+    result = mover.run(cfg, pool.jf(cfg), wait=False)
+    assert result["note"] == "ok; post-move command failed (exit 3)"
+    assert not result.get("failed")
+    assert [d["unit"] for d in result["demoted"]] == ["movies/Cold (2001)"]
+    assert state.load(cfg.state_path)["last_run"]["note"] == "ok; post-move command failed (exit 3)"
+    assert "post-move command failed (exit 3)" in caplog.text
+    assert "LOMBO_TIER_MOVED_JSON" not in caplog.text
+
+
+def test_post_move_command_that_cannot_start_is_a_note(pool):
+    pool.add(pool.ssd, "Cold (2001)")
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND="/nonexistent/lombo-hook")
+    result = mover.run(cfg, pool.jf(cfg), wait=False)
+    assert result["note"] == "ok; post-move command failed (FileNotFoundError)"
+    assert not result.get("failed")
+
+
+def test_post_move_command_timeout_is_a_note(pool, monkeypatch):
+    pool.add(pool.ssd, "Cold (2001)")
+    seen = {}
+
+    def slow(args, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(args, kw["timeout"])
+
+    monkeypatch.setattr(mover.subprocess, "run", slow)
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND="some-hook")
+    result = mover.run(cfg, pool.jf(cfg), wait=False)
+    assert result["note"] == "ok; post-move command failed (TimeoutExpired)"
+    assert not result.get("failed")
+    assert seen["timeout"] == 60
+
+
+def test_post_move_command_runs_without_a_shell_and_drops_output(pool, monkeypatch):
+    pool.add(pool.ssd, "Cold (2001)")
+    seen = {}
+
+    def fake_run(args, **kw):
+        seen["args"], seen["kw"] = args, kw
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(mover.subprocess, "run", fake_run)
+    cfg = pool.cfg(DRY_RUN="false", POST_MOVE_COMMAND="hook --flag 'two words' ; echo hi")
+    assert cfg.post_move_command == ("hook", "--flag", "two words", ";", "echo", "hi")
+    mover.run(cfg, pool.jf(cfg), wait=False)
+    assert seen["args"] == ["hook", "--flag", "two words", ";", "echo", "hi"]
+    assert not seen["kw"].get("shell")
+    assert seen["kw"]["stdin"] == subprocess.DEVNULL
+    assert seen["kw"]["capture_output"] is True
+    assert json.loads(seen["kw"]["env"]["LOMBO_TIER_MOVED_JSON"])["demoted"] == ["movies/Cold (2001)"]
+
+
+def test_post_move_command_setting_is_off_by_default_and_checks_syntax(pool):
+    assert pool.cfg().post_move_command == ()
+    assert pool.cfg(POST_MOVE_COMMAND="   ").post_move_command == ()
+    with pytest.raises(ConfigError, match="LOMBO_TIER_POST_MOVE_COMMAND is not a valid command"):
+        pool.cfg(POST_MOVE_COMMAND="hook 'unclosed")

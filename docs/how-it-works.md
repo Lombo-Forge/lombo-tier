@@ -83,4 +83,7 @@ mergerfs stops sending new files to a branch once it has less than `minfreespace
    titles are gathered onto it after the other moves.
 9. Walk the HDDs once more so the saved file list matches, then write `state.json` (last run and a cooldown per
    moved title) and `tiers.json` (where every title is now, see [contracts.md](contracts.md)).
-10. Send the webhook summary if something moved or failed, and ping `PING_URL`.
+10. If something really moved and `POST_MOVE_COMMAND` is set, run it once (after `tiers.json` is written and just before
+    `state.json` is saved, never in a dry run). It has 60 seconds. If it fails, the last-run note gets a short suffix such as
+    `post-move command failed (exit 1)` and the run still counts as done.
+11. Send the webhook summary if something moved or failed, and ping `PING_URL`.

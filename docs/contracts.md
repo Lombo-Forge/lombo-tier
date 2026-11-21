@@ -5,6 +5,7 @@
 - [tiers.json: where each title lives](#tiersjson-where-each-title-lives)
 - [The conversion session file](#the-conversion-session-file)
 - [The pin list](#the-pin-list)
+- [The post-move command](#the-post-move-command)
 - [What changing a version means](#what-changing-a-version-means)
 
 LomboTier shares small JSON files with other tools. Each has a `version`. Read the version first and ignore a
@@ -92,6 +93,23 @@ atomically and keep the shape. Details are in [pinned-titles.md](pinned-titles.m
 ```json
 {"version": 1, "titles": ["movies/Jaws (1975)", "tv/Some Show"]}
 ```
+
+## The post-move command
+
+- **Name:** `LOMBO_TIER_POST_MOVE_COMMAND`. Empty (the default) means off.
+- **When it runs:** once per live run or `move` in which at least one unit was demoted, promoted or gathered, after
+  `tiers.json` is written. Never in a dry run, never when nothing moved. Not once per title.
+- **How:** split with `shlex`, started without a shell, no input, output dropped, 60 second limit.
+- **What it gets:** the normal environment plus `LOMBO_TIER_MOVED_JSON`, a JSON object with the pool-relative unit
+  paths:
+
+```json
+{"demoted": ["movies/Jaws (1975)"], "promoted": [], "gathered": ["tv/Some Show/Season 1"]}
+```
+
+- **Failure never fails the action:** a non-zero exit, a timeout or a command that cannot start adds a note to the
+  result's `note` and to the last-run entry in `state.json` (for example `ok; post-move command failed (exit 1)`)
+  and a log line. The moves, `failed`, the webhook and the exit code are unchanged.
 
 ## What changing a version means
 
