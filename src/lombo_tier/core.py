@@ -2,9 +2,9 @@
 
 No network, no disk, no clock (the caller passes `now`), so every rule here is tested with plain data.
 
-The unit that moves is a movie folder or one season folder, so a title never ends up half on each
-disk because of this tool. Paths in the pool never change (mergerfs shows the same tree), so Jellyfin,
-Sonarr and Radarr never notice a move.
+The unit that moves is a movie folder or one season folder, so a title is only ever half on each
+disk when a move is cut short midway (the next run finishes it). Paths in the pool never change (mergerfs
+shows the same tree), so Jellyfin, Sonarr and Radarr never notice a move.
 
 - DEMOTE (SSD -> HDD) only when the SSD is nearly full: the least popular, longest-unwatched titles
   first. Never a title that is playing, still hard-linked to a seeding torrent, recently promoted,

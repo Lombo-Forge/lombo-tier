@@ -173,6 +173,7 @@ def run(
     watcher = PlayingWatcher(cfg, jf, poll)
     watcher.start()
     deadline = started + cfg.max_run_minutes * 60
+    not_mounted = ""
     try:
         for kind, moves, src, dst in (
             ("demoted", p.demote, cfg.ssd_branches, cfg.hdd_branches),
@@ -183,21 +184,36 @@ def run(
                     result["skipped"].append({"unit": m.rel, "why": "someone started watching"})
                     continue
                 try:
-                    r = disks.move_unit(m.rel, src, dst, lambda: watcher.flag, deadline, cfg.dest_margin)
+                    r = disks.move_unit(
+                        m.rel,
+                        src,
+                        dst,
+                        lambda: watcher.flag,
+                        deadline,
+                        cfg.dest_margin,
+                        marker=cfg.disk_marker if cfg.check_mounts else None,
+                    )
                 except OSError as exc:  # disk full, file vanished, permissions: skip this unit, keep going
                     log.warning("moving %s failed: %s", m.rel, exc)
                     result["skipped"].append({"unit": m.rel, "why": f"{type(exc).__name__}: {exc}"[:200]})
                     continue
                 if r["moved"]:
                     result[kind].append({"unit": m.rel, "bytes": r["bytes"]})
+                if r["moved"] and not r["skipped"]:  # a half-moved unit gets no cooldown: the next plan resumes it
                     state.setdefault("cooldown", {})[m.rel] = {
                         "dir": "promote" if kind == "promoted" else "demote",
                         "at": now(),
                     }
                 if r["skipped"]:
                     result["skipped"].append({"unit": m.rel, "why": r["skipped"]})
+                    if r["skipped"].startswith(disks.NOT_MOUNTED):
+                        log.error("ALERT: %s. Stopping the run.", r["skipped"])
+                        not_mounted = r["skipped"]
+                        break
                     if "out of time" in r["skipped"]:
                         break
+            if not_mounted:
+                break
     except Exception as exc:
         log.exception("run failed")
         return finish(
@@ -220,6 +236,8 @@ def run(
                 )
             except Exception as exc:  # noqa: BLE001  a failed re-index is not a failed run
                 log.warning("HDD file list not refreshed after the moves: %s", exc)
+    if not_mounted:
+        return finish(f"{not_mounted}. Stopped the run; nothing else was moved.", failed=True)
     return finish("ok")
 
 
@@ -229,6 +247,8 @@ def resolve_units(cfg: Config, names: list[str]) -> list[str]:
     found = []
     for name in names:
         name = name.strip().strip("/")
+        if ".." in name.split("/"):
+            raise ValueError(f"{name!r}: '..' is not allowed in a title name")
         cands = set()
         for b in cfg.ssd_branches:
             if os.path.isdir(os.path.join(b, name)):
@@ -291,6 +311,7 @@ def run_move(
         sleep(60)
     watcher = PlayingWatcher(cfg, jf, poll)
     watcher.start()
+    not_mounted = ""
     try:
         for rel in units:
             if watcher.flag:
@@ -298,7 +319,13 @@ def run_move(
                 continue
             try:
                 r = disks.move_unit(
-                    rel, cfg.ssd_branches, cfg.hdd_branches, lambda: watcher.flag, None, cfg.dest_margin
+                    rel,
+                    cfg.ssd_branches,
+                    cfg.hdd_branches,
+                    lambda: watcher.flag,
+                    None,
+                    cfg.dest_margin,
+                    marker=cfg.disk_marker if cfg.check_mounts else None,
                 )
             except OSError as exc:
                 log.warning("moving %s failed: %s", rel, exc)
@@ -306,9 +333,14 @@ def run_move(
                 continue
             if r["moved"]:
                 result["demoted"].append({"unit": rel, "bytes": r["bytes"]})
+            if r["moved"] and not r["skipped"]:
                 state.setdefault("cooldown", {})[rel] = {"dir": "demote", "at": now()}
             if r["skipped"]:
                 result["skipped"].append({"unit": rel, "why": r["skipped"]})
+                if r["skipped"].startswith(disks.NOT_MOUNTED):
+                    log.error("ALERT: %s. Stopping.", r["skipped"])
+                    not_mounted = r["skipped"]
+                    break
     except Exception as exc:
         log.exception("manual move failed")
         return finish(
@@ -329,6 +361,8 @@ def run_move(
                 )
             except Exception as exc:  # noqa: BLE001
                 log.warning("HDD file list not refreshed after the moves: %s", exc)
+    if not_mounted:
+        return finish(f"{not_mounted}. Stopped; nothing else was moved.", failed=True)
     return finish("manual move: ok")
 
 

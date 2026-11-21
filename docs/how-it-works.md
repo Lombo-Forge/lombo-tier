@@ -16,7 +16,7 @@ Your media is in one mergerfs pool made of separate disks. The SSDs come first i
 
 ## What moves
 
-The unit is a movie folder, or one season folder of a show. A title is never split by this tool. Loose files at a show's top folder or in a library root stay where they are. Season folders are recognised by name: `Season 1`, `Series 2`, `S03`, and `Specials` (season 0).
+The unit is a movie folder, or one season folder of a show. A title is moved as a whole: a file that cannot move (still seeding, changed recently) is found before anything is copied, so the folder stays put. If a move is cut short midway (someone starts watching, time runs out), part of a folder can be on each disk until the next run finishes it; that unit gets no cooldown. Loose files at a show's top folder or in a library root stay where they are. Season folders are recognised by name: `Season 1`, `Series 2`, `S03`, and `Specials` (season 0).
 
 ## Moving to the HDDs
 

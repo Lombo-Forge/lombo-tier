@@ -395,3 +395,43 @@ def test_env_example_is_valid_and_lists_every_setting():
     )
     assert read, "the pattern no longer finds any settings in config.py"
     assert {P + name for name in read} <= set(example), "a setting is missing from .env.example"
+
+
+def test_move_rejects_a_name_that_climbs_out_of_the_library(pool, capsys):
+    f = pool.add(pool.ssd, "Cold (2001)")
+    live = {**pool.env, P + "DRY_RUN": "false"}
+    for bad in ("movies/..", "..", "movies/../movies/Cold (2001)"):
+        with pytest.raises(ValueError, match="not allowed"):
+            mover.resolve_units(pool.cfg(), [bad])
+        assert cli.main(["move", bad], live) == 2
+    assert f.exists()
+    assert not (pool.hdd / "movies").exists()
+
+
+def test_run_stops_when_a_disk_goes_missing_mid_run(pool, monkeypatch):
+    a = pool.add(pool.ssd, "Cold (2001)")
+    b = pool.add(pool.ssd, "Colder (2002)")
+    real = mover.disks.copy_verified
+
+    def copy_then_lose_disk(*args, **kw):
+        real(*args, **kw)
+        if (pool.hdd / ".m").exists():
+            (pool.hdd / ".m").rmdir()
+
+    monkeypatch.setattr(mover.disks, "copy_verified", copy_then_lose_disk)
+    cfg = pool.cfg(DRY_RUN="false")
+    result = mover.run(cfg, pool.jf(cfg), wait=False)
+    assert result["failed"]
+    assert "not mounted" in result["note"]
+    assert len(result["demoted"]) == 1
+    assert [a.exists(), b.exists()].count(True) == 1  # the other title was never touched
+
+
+def test_half_moved_unit_gets_no_cooldown(pool, monkeypatch):
+    pool.add(pool.ssd, "Cold (2001)")
+    monkeypatch.setattr(
+        mover.disks, "move_unit", lambda *a, **kw: {"moved": 1, "bytes": 5, "skipped": "someone started watching"}
+    )
+    cfg = pool.cfg(DRY_RUN="false")
+    mover.run(cfg, pool.jf(cfg), wait=False)
+    assert "movies/Cold (2001)" not in state.load(cfg.state_path).get("cooldown", {})
