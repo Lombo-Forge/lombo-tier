@@ -36,7 +36,10 @@ cli.py calls mover.py, schedule.py
 | `mover.py` | Orchestrates a run. |
 | `schedule.py` | Seconds until the next run hour. |
 | `notify.py` | Webhook. |
-| `cli.py` | `doctor`, `plan`, `run`, `move`. |
+| `pins.py` | The pin list: read, validate, write atomically, match a unit. |
+| `session.py` | Reads the conversion session file (never writes it). |
+| `tiers.py` | Builds and writes `tiers.json`. |
+| `cli.py` | `doctor`, `plan`, `run`, `move`, `pin`. |
 
 ## Why it is split this way
 

@@ -4,7 +4,10 @@ lombo-tier doctor               check the settings, Jellyfin, the disks and the 
 lombo-tier plan [--json]        show what a run would move; changes nothing
 lombo-tier run [--no-wait] [--loop]
                                 do it (only prints the plan while DRY_RUN=true); --loop repeats every day at RUN_HOUR
-lombo-tier move NAME [NAME...]  move the named titles to the HDDs now, with the same safety checks
+lombo-tier move NAME [NAME...] [--dry-run]
+                                move the named titles to the HDDs now, with the same safety checks
+lombo-tier pin add|remove NAME [NAME...]   keep a title on the SSD (the pin list, LOMBO_TIER_PIN_FILE)
+lombo-tier pin list             show the pinned titles
 """
 
 import argparse
@@ -16,7 +19,7 @@ import sys
 import time
 from typing import Any
 
-from . import __version__, core, disks, mover, schedule
+from . import __version__, core, disks, mover, pins, schedule, session
 from . import state as statemod
 from .config import Config, ConfigError, from_env
 from .jellyfin import Jellyfin, JellyfinError
@@ -110,6 +113,25 @@ def doctor(cfg: Config, jf: Jellyfin | None = None) -> int:
         writable = False
     line(writable, f"data folder {cfg.data_dir}", "" if writable else "not writable")
     line(perr is None, "state file", perr or "readable or not created yet")
+    if cfg.pin_file:
+        pin_bad = pins.problem(cfg.pin_file)
+        count = 0 if pin_bad else len(pins.load(cfg.pin_file))
+        line(pin_bad is None, f"pin list {cfg.pin_file}", pin_bad or f"{count} pinned title(s)")
+        if cfg.pin_branch:
+            if cfg.check_mounts:
+                here = disks.disk_mounted(cfg.pin_branch, cfg.disk_marker)
+            else:
+                here = os.path.isdir(cfg.pin_branch)
+            why = "" if here else "missing or not mounted: pinned titles will not move"
+            line(here, f"pin branch {cfg.pin_branch}", why)
+    if cfg.session_file:
+        status, detail = session.check(cfg.session_file, time.time())
+        if status == session.UNREADABLE:
+            line(False, f"conversion session file {cfg.session_file}", f"{detail}: runs will stand down")
+        elif status == session.OPEN:
+            print(f"[warn] a conversion session is open ({detail}): runs will not move anything until it closes")
+        else:
+            line(True, f"conversion session file {cfg.session_file}", "no session open")
     print(f"[ ok ] webhook: {'set' if cfg.webhook_url else 'not set (no alerts)'}")
     print(f"[ ok ] mode: {'dry run (nothing is moved)' if cfg.dry_run else 'LIVE'}")
     return 1 if bad else 0
@@ -119,7 +141,13 @@ def doctor(cfg: Config, jf: Jellyfin | None = None) -> int:
 def format_plan(p: core.Plan, free: int, cfg: Config) -> str:
     s = cfg.settings
     out = [f"SSD free (counted for planning): {_gb(free)}; target {_gb(s.reserve + s.headroom)}"]
-    for title, moves in (("Move to HDD", p.demote), ("Move back to SSD", p.promote)):
+    for title, moves in (
+        ("Move to HDD", p.demote),
+        ("Move back to SSD", p.promote),
+        ("Gather pinned titles onto the pin branch", p.gather),
+    ):
+        if title.startswith("Gather") and not cfg.pin_branch:
+            continue
         out.append(f"{title} ({len(moves)}):")
         out += [f"  {m.rel}  {_gb(m.bytes)}  {m.why}" for m in moves] or ["  nothing"]
     if p.popular:
@@ -169,7 +197,13 @@ def _dry_summary(result: dict[str, Any], cfg: Config) -> str:
     if not plan:
         return f"LomboTier: {result['note']}"
     lines = ["LomboTier (dry run, nothing moved). Tonight's plan:"]
-    for title, key in (("Would move to HDD", "demote"), ("Would move back to SSD", "promote")):
+    for title, key in (
+        ("Would move to HDD", "demote"),
+        ("Would move back to SSD", "promote"),
+        ("Would gather pinned titles", "gather"),
+    ):
+        if key == "gather" and not plan[key]:
+            continue
         lines.append(f"{title} ({len(plan[key])}):")
         lines += [f"  {m['rel']}  {_gb(m['bytes'])}  {m['why']}" for m in plan[key]] or ["  nothing"]
     lines += [f"Note: {n}" for n in plan["notes"]]
@@ -177,18 +211,64 @@ def _dry_summary(result: dict[str, Any], cfg: Config) -> str:
     return "\n".join(lines)
 
 
-def cmd_move(cfg: Config, jf: Jellyfin, names: list[str], wait: bool) -> int:
+def cmd_move(cfg: Config, jf: Jellyfin, names: list[str], wait: bool, dry_run: bool = False) -> int:
+    dry = dry_run or cfg.dry_run  # the flag can only make it safer
     try:
-        result = mover.run_move(cfg, jf, names, wait=wait)
-    except ValueError as e:  # a mistyped name: not a failed run
+        result = mover.run_move(cfg, jf, names, dry_run=dry, wait=wait)
+    except ValueError as e:  # a mistyped or ambiguous name: nothing moved, not a failed run
         print(f"lombo-tier: {e}", file=sys.stderr)
         return 2
-    if cfg.dry_run:
-        would = ", ".join(result.get("would_move_to_hdd", [])) or result["note"]
-        print(f"LomboTier (dry run, nothing moved). Would move to HDD: {would}")
+    if result.get("busy"):
+        print(f"lombo-tier: {result['note']}", file=sys.stderr)
+        return 1
+    if dry and "would_move_to_hdd" in result:
+        would = ", ".join(result["would_move_to_hdd"]) or "nothing"
+        out = [f"LomboTier (dry run, nothing moved). Would move to HDD: {would}"]
+        out += [f"Skipped {s['unit']}: {s['why']}" for s in result["skipped"]]
+        print("\n".join(out))
+    elif dry:
+        print(f"LomboTier (dry run, nothing moved). {result['note']}")
     else:
         print(mover.summary(result))
     return 1 if result.get("failed") else 0
+
+
+# --------------------------------------------------------------------- pin
+def cmd_pin(cfg: Config, action: str, names: list[str]) -> int:
+    """Edit or show the pin list. It only changes the list file, never a media file, so DRY_RUN does not apply."""
+    if not cfg.pin_file:
+        print("lombo-tier: LOMBO_TIER_PIN_FILE is not set: say where the pin list lives first", file=sys.stderr)
+        return 2
+    if bad := pins.problem(cfg.pin_file):
+        print(f"lombo-tier: the pin list {cfg.pin_file} can't be read ({bad}); fix it first", file=sys.stderr)
+        return 1
+    titles = pins.load(cfg.pin_file)
+    if action == "list":
+        print("\n".join(titles) if titles else "no pinned titles")
+        return 0
+    new = list(titles)
+    try:
+        for name in names:
+            if action == "add":
+                new.append(mover.resolve_pin(cfg, name))
+            else:
+                name = name.strip().strip("/")
+                hit = sorted({t for t in new if t == name or any(t == f"{r}/{name}" for r in cfg.roots)})
+                if len(hit) != 1:
+                    have = ", ".join(sorted(new)) or "nothing"
+                    why = f"not in the pin list (pinned: {have})" if not hit else "matches several: " + ", ".join(hit)
+                    raise ValueError(f"{name!r}: {why}")
+                new.remove(hit[0])
+    except ValueError as e:
+        print(f"lombo-tier: {e}", file=sys.stderr)
+        return 2
+    try:
+        pins.save(cfg.pin_file, new)
+    except OSError as e:
+        print(f"lombo-tier: can't write the pin list {cfg.pin_file} ({type(e).__name__})", file=sys.stderr)
+        return 1
+    print(f"{len(set(new))} pinned title(s)")
+    return 0
 
 
 # -------------------------------------------------------------------- main
@@ -213,6 +293,10 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     mv = sub.add_parser("move")
     mv.add_argument("names", nargs="+", metavar="NAME")
     mv.add_argument("--no-wait", action="store_true")
+    mv.add_argument("--dry-run", action="store_true", help="print what would move and change nothing")
+    pn = sub.add_parser("pin")
+    pn.add_argument("action", choices=["add", "remove", "list"])
+    pn.add_argument("names", nargs="*", metavar="NAME")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -224,13 +308,17 @@ def main(argv: list[str] | None = None, env: dict[str, str] | None = None) -> in
     jf = Jellyfin(cfg.jellyfin_url, cfg.jellyfin_api_key)
     if args.cmd == "doctor":
         return doctor(cfg, jf)
+    if args.cmd == "pin":
+        if args.action != "list" and not args.names:
+            p.error(f"pin {args.action} needs at least one NAME")
+        return cmd_pin(cfg, args.action, args.names)
     try:
         if args.cmd == "plan":
             return cmd_plan(cfg, jf, args.json)
         _low_priority()
         if args.cmd == "run":
             return cmd_run(cfg, jf, not args.no_wait, args.loop)
-        return cmd_move(cfg, jf, args.names, not args.no_wait)
+        return cmd_move(cfg, jf, args.names, not args.no_wait, args.dry_run)
     except JellyfinError as e:
         print(f"[FAIL] {e}", file=sys.stderr)
         return 1

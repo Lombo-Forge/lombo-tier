@@ -30,7 +30,8 @@ Standard library only (add a dependency only when it clearly earns its place).
 | `src/lombo_tier/mover.py` | Orchestrates a run. |
 | `src/lombo_tier/schedule.py` | Seconds until the next run hour. |
 | `src/lombo_tier/notify.py` | Webhook alerts. |
-| `src/lombo_tier/cli.py` | `doctor`, `plan`, `run`, `move`. |
+| `src/lombo_tier/pins.py`, `session.py`, `tiers.py` | The pin list, the conversion session file (read only) and `tiers.json`. Contracts: `docs/contracts.md`. |
+| `src/lombo_tier/cli.py` | `doctor`, `plan`, `run`, `move`, `pin`. |
 | `tests/` | pytest, with a fake Jellyfin and webhook in `conftest.py`. |
 | `examples/` | systemd unit and timer, mergerfs fstab line. |
 | `scripts/leak-check.sh` | Fails when private or personal strings appear. CI runs it. |

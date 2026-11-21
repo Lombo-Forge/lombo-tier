@@ -61,7 +61,7 @@ Never test on a pool you cannot afford to touch until you have done these in ord
 
 1. `lombo-tier doctor`. Fix everything it reports. See [troubleshooting](troubleshooting.md).
 2. `lombo-tier plan`. Read it. Do the titles and reasons make sense?
-3. `lombo-tier move "Some Small Movie (2001)"`. With `DRY_RUN=true` this only prints what it would do. Pick a small title.
+3. `lombo-tier move "Some Small Movie (2001)" --dry-run`. This only prints what it would do, whatever `DRY_RUN` says. Pick a small title.
 
 ## 6. Go live
 

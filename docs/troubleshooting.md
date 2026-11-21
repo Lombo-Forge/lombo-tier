@@ -30,6 +30,12 @@ Wording may differ slightly from the messages in your version. Match on the mean
 | Skipped: over tonight's move limit | Title is larger than what is left of `MAX_GB_PER_RUN` | Raise `MAX_GB_PER_RUN` or wait for the next run. |
 | Wanted on the SSD but there isn't room even after moving older titles | Not enough older titles are old enough to move | Wait, or lower `MIN_AGE_DAYS`, or add SSD space. |
 | Still short of the target after moving everything old enough | Everything left is too new, watched, held or recently promoted | Wait, or review the settings. |
+| `the pin list can't be read` (and `[FAIL] pin list` in `doctor`) | The pin file exists but is not valid JSON in the documented shape | Fix it, or move it aside. Until then nothing moves, on purpose. See [pinned-titles.md](pinned-titles.md). |
+| `a conversion session is open` | The file at `SESSION_FILE` says another tool is converting | Nothing to fix: LomboTier tries again next run. If no tool is converting, the file is stale: it stops counting at its `expires` time, or delete it. |
+| `the conversion session file can't be trusted` | The session file exists but is not valid | Fix or remove it. An unreadable lock is never treated as closed. See [contracts.md](contracts.md). |
+| `another run or move is in progress` | A second run or `move` started while one was going | Wait for the first. The lock is released when it ends, even if it crashed. |
+| `the pin branch ... is missing or not mounted` | `PIN_BRANCH` is not there | Mount it. Pinned titles do not move meanwhile. |
+| `pinned: never moved off the SSD` | `move` was given a pinned title | `lombo-tier pin remove NAME` first, if you do want it moved. |
 | Waiting for nobody to be watching | Someone is streaming | It waits up to `WAIT_QUIET_MINUTES`, then stops without moving. Use `--no-wait` only if you accept that. |
 
 ## Nothing moves
@@ -44,4 +50,5 @@ Wording may differ slightly from the messages in your version. Match on the mean
 
 ## Exit codes
 
-0 ok, 1 a failure, 2 bad settings (or a title name that `move` cannot find).
+0 ok, 1 a failure (or a `move` that did not start because another run holds the lock), 2 bad settings (or a title
+name that `move` or `pin` cannot find or that matches several).

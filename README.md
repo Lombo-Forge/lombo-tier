@@ -19,8 +19,10 @@ LomboTier keeps what people watch on your SSD and moves the rest to your HDDs. I
 - [Install in a minute](#install-in-a-minute)
 - [How it decides](#how-it-decides)
 - [Commands](#commands)
+- [Pinned titles, conversion sessions and `tiers.json`](#pinned-titles-conversion-sessions-and-tiersjson)
 - [Settings](#settings)
 - [FAQ](#faq)
+- [What is not verified](#what-is-not-verified)
 - [Not included](#not-included)
 - [Contributing and licence](#contributing-and-licence)
 
@@ -68,9 +70,25 @@ More detail: [docs/how-it-works.md](docs/how-it-works.md).
 | `lombo-tier doctor` | Checks settings, Jellyfin, the API key, that the SSD and HDD branches exist, are mounted and have space, that at least one of your library folders exists, and that Jellyfin's file paths match the prefix. Exit code 1 on a failure. |
 | `lombo-tier plan [--json]` | Shows tonight's plan. Changes nothing. Does not wake a sleeping HDD beyond what the saved file list needs. |
 | `lombo-tier run [--no-wait] [--loop]` | Does the plan. With `DRY_RUN=true` it only prints it. It waits up to `WAIT_QUIET_MINUTES` for nobody to be watching (`--no-wait` skips that). `--loop` repeats daily at `RUN_HOUR` in the container's `TZ`. |
-| `lombo-tier move NAME [NAME...]` | Moves the named titles to the HDDs now, with the same safety checks. `NAME` is a title folder such as `Jaws (1975)` or a pool path such as `movies/Jaws (1975)`. |
+| `lombo-tier move NAME [NAME...] [--dry-run]` | Moves the named titles from the SSDs to the HDDs now, with the same safety checks as a night's run, and records it in `state.json`. `NAME` is a title folder such as `Jaws (1975)` or a pool path such as `movies/Jaws (1975)`. A name that matches nothing, or several things, is an error that lists the matches and moves nothing. `--dry-run` (or `DRY_RUN=true`) only prints the plan. |
+| `lombo-tier pin add NAME...`, `pin remove NAME...`, `pin list` | Edit or show the list of pinned titles (needs `LOMBO_TIER_PIN_FILE`). A pinned title is never moved off the SSD. See [docs/pinned-titles.md](docs/pinned-titles.md). |
 
-Exit codes: 0 ok, 1 failure, 2 bad settings (or a title name that `move` cannot find).
+Exit codes: 0 ok, 1 failure, 2 bad settings (or a title name that `move` or `pin` cannot find or that matches several).
+
+## Pinned titles, conversion sessions and `tiers.json`
+
+- **Pinned titles.** `LOMBO_TIER_PIN_FILE` is a JSON list of titles that never leave the SSD. Optionally
+  `LOMBO_TIER_PIN_BRANCH` names one SSD that pinned titles are gathered onto. A pin list that cannot be read makes
+  the run and `move` stand down; `doctor` shows FAIL. See [docs/pinned-titles.md](docs/pinned-titles.md).
+- **Conversion sessions.** With `LOMBO_TIER_SESSION_FILE` set, nothing moves while that file says another tool (such
+  as a converter) has a session open. The file's shape is a proposal for LomboShrink, which does not write it yet.
+  See [docs/contracts.md](docs/contracts.md).
+- **`tiers.json`.** After every run, `tiers.json` in the data folder lists where each movie and season folder is
+  (`ssd` or `hdd`), its size and whether it is pinned, in a versioned shape other tools may read. See
+  [docs/contracts.md](docs/contracts.md).
+- **One at a time.** A live run or `move` takes a lock in the data folder; a second one does not start.
+
+Security notes (what it trusts, refuses and never logs): [docs/security.md](docs/security.md).
 
 ## Settings
 
@@ -86,9 +104,22 @@ Everything is an environment variable with the `LOMBO_TIER_` prefix. All of them
 
 **What about torrents that are still seeding?** A title with a file that has another hard link is left where it is. When the torrent is gone, the title can move.
 
+## What is not verified
+
+The tests use folders in a temporary directory and a fake Jellyfin. These have **not** been checked against the real
+thing, so try them on a small title with `DRY_RUN=true` first:
+
+- A real mergerfs pool and real mounts, including the mount checks and a disk going missing mid-run.
+- A real Jellyfin server: the play data, the "now playing" answers and the path prefix.
+- A real conversion tool writing the session file. LomboShrink does not write it yet; the shape in
+  [docs/contracts.md](docs/contracts.md) is a proposal, and only LomboTier's reading of it is tested.
+- A real client reading `tiers.json` (a web-client plugin or a dashboard). Only the shape is tested.
+- The run lock across two containers sharing one data folder. It is tested with two handles in one process, and it
+  relies on the data folder being on a local disk (file locks on some network shares are not reliable).
+- Sleeping HDDs staying asleep.
+
 ## Not included
 
-- Pinning a title to one disk.
 - A web interface.
 - Sonarr or Radarr integration.
 - A reserve for a boot disk.
