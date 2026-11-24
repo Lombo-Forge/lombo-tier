@@ -14,7 +14,7 @@ class NotifyError(Exception):
 def send(url: str, message: str, timeout: float = 10) -> None:
     body = json.dumps({"content": message, "text": message}).encode()
     req = urllib.request.Request(  # noqa: S310 - config.py only accepts http(s) URLs
-        url, data=body, method="POST", headers={"Content-Type": "application/json"}
+        url, data=body, method="POST", headers={"Content-Type": "application/json", "User-Agent": "lombo-tier"}
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout):  # noqa: S310 - config.py only accepts http(s) URLs
