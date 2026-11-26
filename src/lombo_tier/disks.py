@@ -12,7 +12,7 @@ import logging
 import os
 import shutil
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -52,26 +52,30 @@ def unmounted_branches(branches: Sequence[str], marker: str = "") -> list[str]:
     return [b for b in branches if not disk_mounted(b, marker)]
 
 
-def branch_free(branches: Sequence[str]) -> list[tuple[int, int]]:
-    """[(free_bytes, filesystem id)] for each readable branch, for core.effective_free."""
+def branch_free(branches: Sequence[str], less: Mapping[str, int] | None = None) -> list[tuple[int, int]]:
+    """[(free_bytes, filesystem id)] for each readable branch, for core.effective_free. `less` is taken off a
+    branch's free space: how much more than the usual reserve that branch keeps."""
     out: list[tuple[int, int]] = []
     for b in branches:
         try:
-            out.append((disk_free(b), os.stat(b).st_dev))
+            out.append((max(0, disk_free(b) - (less or {}).get(b, 0)), os.stat(b).st_dev))
         except OSError:
             continue
     return out
 
 
-def pick_branch(branches: Sequence[str], need: int, margin: int = 20 * GB) -> str | None:
-    """The branch with the most free space that can take `need` bytes and still keep `margin` free."""
+def pick_branch(
+    branches: Sequence[str], need: int, margin: int = 20 * GB, reserves: Mapping[str, int] | None = None
+) -> str | None:
+    """The branch with the most free space that can take `need` bytes and still keep `margin` free, or that
+    branch's own reserve when that is more."""
     best, best_free = None, -1
     for b in branches:
         try:
             free = disk_free(b)
         except OSError:
             continue
-        if free - need >= margin and free > best_free:
+        if free - need >= max(margin, (reserves or {}).get(b, 0)) and free > best_free:
             best, best_free = b, free
     return best
 
@@ -279,6 +283,7 @@ def move_unit(
     margin: int = 20 * GB,
     settle_seconds: float = 3600,
     marker: str | None = None,
+    reserves: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """Move one unit's files to the best destination branch. Returns what happened.
 
@@ -314,7 +319,7 @@ def move_unit(
 
     if reason := gone():
         return {"moved": 0, "bytes": 0, "skipped": reason}
-    dst_branch = pick_branch(dst_branches, total, margin)
+    dst_branch = pick_branch(dst_branches, total, margin, reserves)
     if dst_branch is None:
         return {"moved": 0, "bytes": 0, "skipped": "no room on the destination disks"}
     moved = moved_bytes = 0
