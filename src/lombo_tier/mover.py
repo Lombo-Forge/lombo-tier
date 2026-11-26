@@ -51,7 +51,8 @@ def make_plan(
         now,
     )
     core.mark_hot(units, cfg.settings, now)
-    free = core.effective_free(disks.branch_free(cfg.ssd_branches), cfg.settings.reserve)
+    less = {b: r - cfg.settings.reserve for b, r in cfg.branch_reserve}
+    free = core.effective_free(disks.branch_free(cfg.ssd_branches, less), cfg.settings.reserve)
     if bad := pins.problem(cfg.pin_file):
         # Never read a damaged pin list as an empty one: plan nothing.
         return core.Plan(notes=[f"the pin list can't be read ({bad}): standing down, nothing will move"]), units, free
@@ -380,6 +381,7 @@ def _run(
                         deadline,
                         cfg.dest_margin,
                         marker=cfg.disk_marker if cfg.check_mounts else None,
+                        reserves=dict(cfg.branch_reserve),
                     )
                 except OSError as exc:  # disk full, file vanished, permissions: skip this unit, keep going
                     log.warning("moving %s failed: %s", m.rel, exc)
@@ -568,6 +570,7 @@ def _run_move(
                     None,
                     cfg.dest_margin,
                     marker=cfg.disk_marker if cfg.check_mounts else None,
+                    reserves=dict(cfg.branch_reserve),
                 )
             except OSError as exc:
                 log.warning("moving %s failed: %s", rel, exc)

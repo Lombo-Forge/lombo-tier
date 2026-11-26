@@ -41,6 +41,7 @@ class Config:
     webhook_url: str | None
     ping_url: str | None
     dry_run: bool
+    branch_reserve: tuple[tuple[str, int], ...] = ()  # (SSD branch, bytes it keeps free) where not RESERVE_GB
     pin_file: str = ""  # JSON list of pinned titles; empty = no pinning
     pin_branch: str = ""  # an SSD branch that pinned titles are gathered onto; empty = leave them where they are
     session_file: str = ""  # a conversion session lock file to respect; empty = no check
@@ -75,6 +76,25 @@ def _truthy(value: str, name: str) -> bool:
     if word in {"0", "false", "no", "off"}:
         return False
     raise ConfigError(f"{PREFIX}{name} must be true or false (got {value!r})")
+
+
+def _branch_reserve(value: str, ssd: tuple[str, ...]) -> tuple[tuple[str, int], ...]:
+    """'/mnt/boot-ssd=250' pairs, comma separated: SSD branches that keep their own amount free."""
+    out = {}
+    for part in filter(None, (p.strip() for p in value.split(","))):
+        path, sep, amount = part.rpartition("=")
+        path = path.strip().rstrip("/")
+        try:
+            gb = float(amount)
+        except ValueError:
+            gb = -1.0
+        if not sep or path not in ssd or not 0 <= gb < 1_000_000:
+            raise ConfigError(
+                f"{PREFIX}BRANCH_RESERVE_GB must be entries like {ssd[0] if ssd else '/mnt/ssd1'}=250, each path one "
+                f"of {PREFIX}SSD_BRANCHES (got {part!r})"
+            )
+        out[path] = int(gb * GB)
+    return tuple(out.items())
 
 
 def from_env(env: dict[str, str]) -> Config:
@@ -203,6 +223,7 @@ def from_env(env: dict[str, str]) -> Config:
         max_run_minutes=number("MAX_RUN_MINUTES", "240", int, 1),
         wait_quiet_minutes=number("WAIT_QUIET_MINUTES", "30", int),
         dest_margin=int(number("DEST_MARGIN_GB", "20") * GB),
+        branch_reserve=_branch_reserve(get("BRANCH_RESERVE_GB"), ssd),
         check_mounts=_truthy(get("CHECK_MOUNTS", "true"), "CHECK_MOUNTS"),
         disk_marker=marker,
         hdd_index_max_days=number("HDD_INDEX_MAX_DAYS", "7"),
