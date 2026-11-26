@@ -360,6 +360,8 @@ def test_series_binge_brings_the_season_and_the_next_one_back():
 def test_effective_free_counts_space_above_each_reserve_and_one_filesystem_once():
     assert core.effective_free([(100, 1), (100, 1), (50, 2)], 10) == 140
     assert core.effective_free([], 10) == 0
+    assert core.effective_free([(3, 1), (1, 2)], 10) == 3  # below the reserve: what is really there
+    assert core.effective_free([(10, 1), (10, 2)], 10) == 10  # parked at the reserve
 
 
 def test_units_are_totalled_from_the_file_index():
