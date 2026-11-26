@@ -49,8 +49,7 @@ Notes for readers:
 
 ## The conversion session file
 
-This is a **proposal** that LomboShrink (or any converter) can implement. LomboTier already reads it; LomboShrink
-does not write it yet.
+LomboShrink writes this file, and any other converter can. LomboTier reads it.
 
 While a tool is converting media it may keep a small file. LomboTier does not move anything while that file exists
 and has not expired. Set `LOMBO_TIER_SESSION_FILE` to its path. Both tools must see the same file, so put it in a

@@ -81,7 +81,7 @@ Exit codes: 0 ok, 1 failure, 2 bad settings (or a title name that `move` or `pin
   `LOMBO_TIER_PIN_BRANCH` names one SSD that pinned titles are gathered onto. A pin list that cannot be read makes
   the run and `move` stand down; `doctor` shows FAIL. See [docs/pinned-titles.md](docs/pinned-titles.md).
 - **Conversion sessions.** With `LOMBO_TIER_SESSION_FILE` set, nothing moves while that file says another tool (such
-  as a converter) has a session open. The file's shape is a proposal for LomboShrink, which does not write it yet.
+  as a converter) has a session open. LomboShrink writes it; any other converter can too.
   See [docs/contracts.md](docs/contracts.md).
 - **`tiers.json`.** After every run, `tiers.json` in the data folder lists where each movie and season folder is
   (`ssd` or `hdd`), its size and whether it is pinned, in a versioned shape other tools may read. See
@@ -114,10 +114,11 @@ Everything is an environment variable with the `LOMBO_TIER_` prefix. All of them
 The tests use folders in a temporary directory and a fake Jellyfin. These have **not** been checked against the real
 thing, so try them on a small title with `DRY_RUN=true` first:
 
-- A real mergerfs pool and real mounts, including the mount checks and a disk going missing mid-run.
-- A real Jellyfin server: the play data, the "now playing" answers and the path prefix.
-- A real conversion tool writing the session file. LomboShrink does not write it yet; the shape in
-  [docs/contracts.md](docs/contracts.md) is a proposal, and only LomboTier's reading of it is tested.
+- A real mergerfs pool and real mounts, and a disk going missing mid-run. `test/real/run.py` moves real files between
+  two real filesystems with a real Jellyfin 12.4 (play data, now playing, hard links, pins, a missing disk marker), but
+  mounts no pool.
+- A real conversion running while Tier runs. The session file Shrink writes and Tier reads is checked between the two
+  programs, not during a conversion.
 - A real client reading `tiers.json` (a web-client plugin or a dashboard). Only the shape is tested.
 - The run lock across two containers sharing one data folder. It is tested with two handles in one process, and it
   relies on the data folder being on a local disk (file locks on some network shares are not reliable).

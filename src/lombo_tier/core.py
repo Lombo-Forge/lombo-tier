@@ -365,11 +365,17 @@ def effective_free(branch_free: Iterable[tuple[int, int]], reserve: int) -> int:
     files to a branch once it has less than the reserve free, so each branch's last `reserve` bytes
     are not room for new files. Counting only what is above it (plus one reserve, the single-SSD
     meaning of 'free') makes 'reserve + headroom free' reachable with several SSDs; a plain sum would
-    stay above it forever and nothing would be demoted. Branches on one filesystem count once."""
-    seen, usable = set(), 0
+    stay above it forever and nothing would be demoted. Branches on one filesystem count once.
+
+    With no room above any reserve, it is the most one branch really has free: calling a full SSD
+    "reserve free" would move too little, and with HEADROOM_GB=0 nothing at all."""
+    seen, usable, most = set(), 0, 0
     for free, fs in branch_free:
         if fs in seen:
             continue
         seen.add(fs)
         usable += max(0, free - reserve)
-    return usable + reserve if seen else 0
+        most = max(most, free)
+    if usable:
+        return usable + reserve
+    return min(most, reserve)
