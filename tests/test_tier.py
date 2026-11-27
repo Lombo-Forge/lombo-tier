@@ -258,6 +258,7 @@ def test_plan_labels_the_most_watched_titles_honestly(pool):
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
 def test_doctor_hints_at_a_read_only_mount(pool, capsys):
+    (pool.hdd / "movies").mkdir(parents=True, exist_ok=True)  # so the library check passes
     pool.ssd.chmod(0o555)
     try:
         dry = cli.main(["doctor"], {**pool.env, P + "DRY_RUN": "true"})
