@@ -259,14 +259,16 @@ def test_plan_labels_the_most_watched_titles_honestly(pool):
 @pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
 def test_doctor_hints_at_a_read_only_mount(pool, capsys):
     (pool.hdd / "movies").mkdir(parents=True, exist_ok=True)  # so the library check passes
-    pool.ssd.chmod(0o555)
+    locked = pool.ssd / "movies"
+    locked.mkdir(parents=True, exist_ok=True)
+    locked.chmod(0o555)
     try:
         dry = cli.main(["doctor"], {**pool.env, P + "DRY_RUN": "true"})
         dry_out = capsys.readouterr().out
         live = cli.main(["doctor"], {**pool.env, P + "DRY_RUN": "false"})
     finally:
-        pool.ssd.chmod(0o755)
-    why = "not writable by this user (a read-only mount, or wrong owner or permissions)"
+        locked.chmod(0o755)
+    why = f"{locked}: not writable by this user (a read-only mount, or wrong owner or permissions)"
     assert f"[warn] SSD {pool.ssd}: {why}" in dry_out
     assert f"[FAIL] SSD {pool.ssd}: {why}" in capsys.readouterr().out
     assert (dry, live) == (0, 1)

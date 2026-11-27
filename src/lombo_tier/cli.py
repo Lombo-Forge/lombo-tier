@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from . import __version__, core, disks, mover, pins, schedule, session
@@ -32,6 +33,13 @@ def _gb(n: int) -> str:
 
 
 # ------------------------------------------------------------------ doctor
+def _unwritable(branch: str, roots: Sequence[str]) -> str | None:
+    """The first folder a move would write into that this user cannot. Moves write inside the library folders, so
+    the disk's own top folder may belong to someone else (a freshly formatted disk belongs to root)."""
+    inside = [os.path.join(branch, r) for r in roots if os.path.isdir(os.path.join(branch, r))]
+    return next((d for d in inside or [branch] if not os.access(d, os.W_OK)), None)
+
+
 def doctor(cfg: Config, jf: Jellyfin | None = None) -> int:
     jf = jf or Jellyfin(cfg.jellyfin_url, cfg.jellyfin_api_key)
     bad = 0
@@ -82,8 +90,8 @@ def doctor(cfg: Config, jf: Jellyfin | None = None) -> int:
                 line(False, f"{tier} {b}", "folder does not exist (is it mounted into the container at this path?)")
             elif cfg.check_mounts and not disks.disk_mounted(b, cfg.disk_marker):
                 line(False, f"{tier} {b}", "not mounted (an empty folder on the boot disk would fill it)")
-            elif not os.access(b, os.W_OK):
-                why = "not writable by this user (a read-only mount, or wrong owner or permissions)"
+            elif locked := _unwritable(b, cfg.roots):
+                why = f"{locked}: not writable by this user (a read-only mount, or wrong owner or permissions)"
                 if cfg.dry_run:  # nothing is written in a dry run, and a read-only mount is a good way to try it
                     print(f"[warn] {tier} {b}: {why}; fine while DRY_RUN=true, a live run needs to write here")
                 else:
