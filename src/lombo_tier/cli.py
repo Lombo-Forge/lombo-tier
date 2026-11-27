@@ -83,9 +83,11 @@ def doctor(cfg: Config, jf: Jellyfin | None = None) -> int:
             elif cfg.check_mounts and not disks.disk_mounted(b, cfg.disk_marker):
                 line(False, f"{tier} {b}", "not mounted (an empty folder on the boot disk would fill it)")
             elif not os.access(b, os.W_OK):
-                line(
-                    False, f"{tier} {b}", "not writable by this user (a read-only mount, or wrong owner or permissions)"
-                )
+                why = "not writable by this user (a read-only mount, or wrong owner or permissions)"
+                if cfg.dry_run:  # nothing is written in a dry run, and a read-only mount is a good way to try it
+                    print(f"[warn] {tier} {b}: {why}; fine while DRY_RUN=true, a live run needs to write here")
+                else:
+                    line(False, f"{tier} {b}", why)
             else:
                 line(True, f"{tier} {b}", f"{_gb(disks.disk_free(b))} free")
     present = {}
